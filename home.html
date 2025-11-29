@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Food Prediction — Demo</title>
+  <link rel="stylesheet" href="data.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>🍽 Food Prediction</h1>
+    <p class="subtitle">Upload an image of food and get a prediction from the model.</p>
+
+    <div class="card">
+      <label class="upload-area" id="uploadArea">
+        <input id="imageInput" type="file" accept="image/*" />
+        <div class="placeholder" id="placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden><path d="M12 2v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          <div>Select or drop an image</div>
+          <small>jpg / png / jpeg — up to 5MB</small>
+        </div>
+        <img id="preview" class="preview hidden" alt="preview" />
+      </label>
+
+      <div class="controls">
+        <button id="predictBtn" class="btn" disabled>Predict</button>
+        <button id="clearBtn" class="btn secondary" disabled>Clear</button>
+      </div>
+
+      <div id="result" class="result hidden" aria-live="polite">
+        <h2>Result</h2>
+        <p><strong>Label:</strong> <span id="labelText"></span></p>
+        <p><strong>Confidence:</strong> <span id="confText"></span></p>
+      </div>
+
+      <div id="error" class="error hidden"></div>
+    </div>
+
+    <footer class="foot">
+      <small>Example frontend — make sure your backend exposes <code>/predict</code>.</small>
+    </footer>
+  </main>
+
+  <script>
+    // === Configuration ===
+    const API_URL = 'http://localhost:5000/predict'; // Flask backend on same host
+
+    // === Elements ===
+    const imageInput = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const placeholder = document.getElementById('placeholder');
+    const predictBtn = document.getElementById('predictBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const resultEl = document.getElementById('result');
+    const labelText = document.getElementById('labelText');
+    const confText = document.getElementById('confText');
+    const errorEl = document.getElementById('error');
+    const uploadArea = document.getElementById('uploadArea');
+
+    let selectedFile = null;
+
+    // === Helpers ===
+    function showPreview(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        preview.src = reader.result;
+        preview.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function resetUI() {
+      selectedFile = null;
+      imageInput.value = '';
+      preview.src = '';
+      preview.classList.add('hidden');
+      placeholder.classList.remove('hidden');
+      predictBtn.disabled = true;
+      clearBtn.disabled = true;
+      resultEl.classList.add('hidden');
+      errorEl.classList.add('hidden');
+      labelText.textContent = '';
+      confText.textContent = '';
+    }
+
+    // === File selection ===
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return resetUI();
+      if (!file.type.startsWith('image/')) {
+        showError('Please upload a valid image file.');
+        return resetUI();
+      }
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        showError('File too large. Max 5MB.');
+        return resetUI();
+      }
+      selectedFile = file;
+      showPreview(file);
+      predictBtn.disabled = false;
+      clearBtn.disabled = false;
+      errorEl.classList.add('hidden');
+    });
+
+    // Drag & drop visuals
+    ['dragenter','dragover'].forEach(evt => {
+      uploadArea.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadArea.classList.add('dragover');
+      });
+    });
+    ['dragleave','drop'].forEach(evt => {
+      uploadArea.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadArea.classList.remove('dragover');
+      });
+    });
+    uploadArea.addEventListener('drop', (e) => {
+      const fs = e.dataTransfer.files;
+      if (fs && fs[0]) {
+        imageInput.files = fs;
+        imageInput.dispatchEvent(new Event('change'));
+      }
+    });
+
+    // === Predict ===
+    predictBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      predictBtn.disabled = true;
+      predictBtn.textContent = 'Predicting...';
+      errorEl.classList.add('hidden');
+      resultEl.classList.add('hidden');
+
+      try {
+        const form = new FormData();
+        form.append('image', selectedFile);
+
+        const resp = await fetch(API_URL, {
+          method: 'POST',
+          body: form
+        });
+
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error('Server error: ' + txt);
+        }
+
+        const data = await resp.json();
+        // Expecting: { label: "pizza", confidence: 0.9412 }
+        const label = data.label ?? data.prediction ?? 'unknown';
+        const conf = (typeof data.confidence === 'number') ? data.confidence : (data.confidence_score ?? data.score ?? null);
+
+        labelText.textContent = label;
+        confText.textContent = conf !== null ? ( (conf > 1 ? (conf * 100).toFixed(2) + '%' : (conf*100).toFixed(2) + '%') ) : '—';
+        resultEl.classList.remove('hidden');
+
+      } catch (err) {
+        showError(err.message || 'Prediction failed.');
+      } finally {
+        predictBtn.disabled = false;
+        predictBtn.textContent = 'Predict';
+      }
+    });
+
+    // === Clear ===
+    clearBtn.addEventListener('click', resetUI);
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove('hidden');
+    }
+
+    // initialize
+    resetUI();
+  </script>
+</body>
+</html>
